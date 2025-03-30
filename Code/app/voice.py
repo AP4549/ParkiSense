@@ -11,11 +11,10 @@ from scipy.signal import find_peaks
 import tempfile
 
 MODEL_PATH = "../../model/voicemodel.pkl"
-
 with open(MODEL_PATH, "rb") as file:
-    voice_model = pickle.load(file)
+    voice_model = pickle.load(file) 
 
-expected_features = voice_model.feature_names_in_
+expected_features = voice_model.feature_names_
 
 # Variable to hold the forwarding function
 _forward_callback = None
@@ -45,7 +44,6 @@ def extract_features(file):
 
         fhi = np.max(fo)
         flo = np.min(fo)
-        nhr = np.mean(librosa.feature.spectral_flatness(y=y))
         intensity = snd.to_intensity()
         hnr = np.mean(intensity.values)
         rpde = np.var(fo) / (np.abs(np.mean(fo)) + 1e-6)
@@ -53,8 +51,6 @@ def extract_features(file):
         spread1 = np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)) * -0.002
         spread2 = np.std(librosa.feature.spectral_bandwidth(y=y, sr=sr)) * 0.05
         d2 = np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr)) / 50
-        peaks, _ = find_peaks(y, height=0)
-        ppe = len(peaks) / len(y)
 
         point_process = parselmouth.praat.call(snd, "To PointProcess (periodic, cc)", 75, 600)
 
@@ -65,48 +61,29 @@ def extract_features(file):
                 return np.nan
 
         jitter_local = safe_praat_call(point_process, "Get jitter (local)", 0, 0, 0.0001, 0.02, 1.3)
-        jitter_rap = safe_praat_call(point_process, "Get jitter (rap)", 0, 0, 0.0001, 0.02, 1.3)
-        jitter_ppq = safe_praat_call(point_process, "Get jitter (ppq5)", 0, 0, 0.0001, 0.02, 1.3)
-        jitter_ddp = 3 * jitter_rap if not np.isnan(jitter_rap) else np.nan
-
         shimmer_local = safe_praat_call([snd, point_process], "Get shimmer (local)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
-        shimmer_db = safe_praat_call([snd, point_process], "Get shimmer (local_dB)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
-        shimmer_apq3 = safe_praat_call([snd, point_process], "Get shimmer (apq3)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
-        shimmer_apq5 = safe_praat_call([snd, point_process], "Get shimmer (apq5)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
-        shimmer_apq11 = safe_praat_call([snd, point_process], "Get shimmer (apq11)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
-        shimmer_dda = 3 * shimmer_apq3 if not np.isnan(shimmer_apq3) else np.nan
 
         features = {
             "MDVP:Fo(Hz)": np.mean(fo),
             "MDVP:Fhi(Hz)": fhi,
             "MDVP:Flo(Hz)": flo,
             "MDVP:Jitter(%)": jitter_local,
-            "MDVP:RAP": jitter_rap,
-            "MDVP:PPQ": jitter_ppq,
-            "Jitter:DDP": jitter_ddp,
             "MDVP:Shimmer": shimmer_local,
-            "MDVP:Shimmer(dB)": shimmer_db,
-            "Shimmer:APQ3": shimmer_apq3,
-            "Shimmer:APQ5": shimmer_apq5,
-            "MDVP:APQ": shimmer_apq11,
-            "Shimmer:DDA": shimmer_dda,
-            "NHR": nhr,
             "HNR": hnr,
             "RPDE": rpde,
             "DFA": dfa,
             "spread1": spread1,
             "spread2": spread2,
-            "D2": d2,
-            "PPE": ppe
+            "D2": d2
         }
 
         features_df = pd.DataFrame([features])
-        features_df = features_df.reindex(columns=expected_features, fill_value=0)
-
+        # Ensure correct column order and fill missing columns with 0
+        features_df = features_df.reindex(columns=expected_features, fill_value=0.0)
         return features_df, None
 
     except Exception as e:
-        return None, f"⚠️ Error extracting features: {e}"
+            return None, f"⚠️ Error extracting features: {e}"
 
 def analyze_voice():
     file = record_audio()
@@ -115,7 +92,9 @@ def analyze_voice():
     if error_message:
         return error_message, None, None, None
 
-    prediction_prob = voice_model.predict_proba(features_df)[0][1]
+    # Scale the features before prediction
+    scaled_features = scaler.transform(features_df)
+    prediction_prob = voice_model.predict_proba(scaled_features)[0][1]
     threshold = 0.6
     prediction = 1 if prediction_prob >= threshold else 0
     result = f"🔴 Parkinson's Detected" if prediction == 1 else "🟢 No Parkinson's"
