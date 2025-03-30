@@ -92,9 +92,8 @@ def analyze_voice():
     if error_message:
         return error_message, None, None, None
 
-    # Scale the features before prediction
-    scaled_features = scaler.transform(features_df)
-    prediction_prob = voice_model.predict_proba(scaled_features)[0][1]
+    # Use features directly without scaling
+    prediction_prob = voice_model.predict_proba(features_df)[0][1]
     threshold = 0.6
     prediction = 1 if prediction_prob >= threshold else 0
     result = f"🔴 Parkinson's Detected" if prediction == 1 else "🟢 No Parkinson's"
@@ -111,7 +110,6 @@ def analyze_voice():
         )
 
     return result, f"Probability: {prediction_prob:.2f}", features_df, "✅ Features saved!"
-
 voice = gr.Interface(
     fn=analyze_voice,
     inputs=[],
